@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,13 +10,16 @@ import { Textarea } from "@/components/ui/input";
 import { StatusPicker } from "@/components/status";
 import { TagInput } from "@/components/tag-input";
 import { EmptyState } from "@/components/empty-state";
+import { FormatMenu, type FormatMode } from "@/components/format-menu";
+import { useConfirm } from "@/components/confirm";
 import { useTopics } from "@/lib/hooks";
 import { fetcher, send } from "@/lib/fetcher";
-import { cn } from "@/lib/utils";
 import { blocksToText } from "@/lib/blocks";
+import { cleanText, formatEditor, type FormatTarget } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { NoteDTO, NoteStatus } from "@/types";
 
-// BlockNote chỉ chạy ở client
+// BlockNote chỉ chạy ở client; memo để các ô khác re-render không kéo editor theo
 const BlockEditor = dynamic(() => import("@/components/block-editor"), {
   ssr: false,
   loading: () => <div className="h-40 animate-pulse rounded-lg bg-muted" />,
@@ -24,10 +27,6 @@ const BlockEditor = dynamic(() => import("@/components/block-editor"), {
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 const AUTOSAVE_MS = 1000;
-
-/** Thêm contentText (dùng cho search) ngay trước khi gửi, không tính trong lúc gõ. */
-const withText = (patch: Record<string, unknown>) =>
-  "content" in patch ? { ...patch, contentText: blocksToText(patch.content) } : patch;
 
 export function NoteEditor({ noteId }: { noteId: string }) {
   // revalidate tắt để dữ liệu từ server không ghi đè thứ đang gõ
@@ -38,12 +37,16 @@ export function NoteEditor({ noteId }: { noteId: string }) {
   if (error || !note) {
     return <div className="p-8"><EmptyState emoji="🤷" title="Không tìm thấy ghi chú"><Button asChild><Link href="/">Về Dashboard</Link></Button></EmptyState></div>;
   }
-  // key theo id: đổi note thì mount lại toàn bộ state
-  return <Editor key={note._id} note={note} />;
+  return <Editor key={note._id} note={note} />; // key theo id: đổi note thì mount lại
 }
+
+const Field = memo(function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div><label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</label>{children}</div>;
+});
 
 function Editor({ note }: { note: NoteDTO }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const { data: topics = [] } = useTopics();
   const topic = topics.find((t) => t._id === note.topicId);
 
@@ -55,68 +58,139 @@ function Editor({ note }: { note: NoteDTO }) {
   const [question, setQuestion] = useState(note.question ?? "");
   const [answer, setAnswer] = useState(note.answer ?? "");
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [formatting, setFormatting] = useState(false);
+  const [toast, setToast] = useState<{ text: string; warn?: boolean } | null>(null);
 
-  // ---- Autosave: gom thay đổi vào `pending`, lưu sau 1s ngừng gõ ----
+  const editorRef = useRef<FormatTarget | null>(null);
+  const onReady = useCallback((e: FormatTarget) => { editorRef.current = e; }, []);
+
+  // ---- Autosave ----
+  // Field thường gom vào `pending`; nội dung editor chỉ đánh dấu `contentDirty`
+  // và được đọc (clone + tính text) 1 lần lúc lưu -> gõ không bị nặng dù note dài.
   const pending = useRef<Record<string, unknown>>({});
+  const contentDirty = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const saving = useRef(false);
 
-  const flush = useCallback(async () => {
-    if (saving.current || !Object.keys(pending.current).length) return;
-    const patch = pending.current;
+  const hasPending = () => contentDirty.current || Object.keys(pending.current).length > 0;
+
+  const takePatch = useCallback(() => {
+    const patch: Record<string, unknown> = { ...pending.current };
     pending.current = {};
+    if (contentDirty.current && editorRef.current) {
+      try {
+        const doc = editorRef.current.document;
+        patch.content = doc;
+        patch.contentText = blocksToText(doc);
+        contentDirty.current = false;
+      } catch { /* editor đã huỷ: bỏ qua */ }
+    }
+    return patch;
+  }, []);
+
+  const flush = useCallback(async () => {
+    if (saving.current || !hasPending()) return;
+    const patch = takePatch();
+    if (!Object.keys(patch).length) return;
     saving.current = true;
     setSaveState("saving");
     try {
-      await send(`/api/notes/${note._id}`, "PATCH", withText(patch));
+      await send(`/api/notes/${note._id}`, "PATCH", patch);
       saving.current = false;
-      if (Object.keys(pending.current).length) { setSaveState("dirty"); void flush(); }
+      if (hasPending()) { setSaveState("dirty"); void flush(); }
       else setSaveState("saved");
       // Chỉ refetch khi dữ liệu hiển thị ở nơi khác thật sự đổi
       if ("topicId" in patch) mutate("/api/topics");
       if ("status" in patch || "topicId" in patch) mutate("/api/stats");
     } catch {
       saving.current = false;
-      pending.current = { ...patch, ...pending.current }; // giữ lại để thử lần sau
+      const { content, contentText, ...rest } = patch;
+      if (content !== undefined) contentDirty.current = true; // đọc lại bản mới nhất lần sau
+      pending.current = { ...rest, ...pending.current };
       setSaveState("error");
     }
-  }, [note._id]);
+  }, [note._id, takePatch]);
 
-  const queue = useCallback((patch: Record<string, unknown>) => {
-    Object.assign(pending.current, patch);
-    setSaveState("dirty");
+  const schedule = useCallback(() => {
+    setSaveState((s) => (s === "dirty" ? s : "dirty"));
     clearTimeout(timer.current);
     timer.current = setTimeout(flush, AUTOSAVE_MS);
   }, [flush]);
 
+  const queue = useCallback((patch: Record<string, unknown>) => {
+    Object.assign(pending.current, patch);
+    schedule();
+  }, [schedule]);
+
+  const onContentChange = useCallback(() => { contentDirty.current = true; schedule(); }, [schedule]);
+
   // Lưu nốt khi rời trang / đóng tab
   useEffect(() => {
     const onUnload = (e: BeforeUnloadEvent) => {
-      if (Object.keys(pending.current).length) {
-        fetch(`/api/notes/${note._id}`, {
-          method: "PATCH", keepalive: true,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(withText(pending.current)),
-        });
-        e.preventDefault();
-      }
+      if (!hasPending()) return;
+      fetch(`/api/notes/${note._id}`, {
+        method: "PATCH", keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(takePatch()),
+      });
+      e.preventDefault();
     };
     window.addEventListener("beforeunload", onUnload);
     return () => {
       window.removeEventListener("beforeunload", onUnload);
       clearTimeout(timer.current);
-      if (Object.keys(pending.current).length) {
-        void send(`/api/notes/${note._id}`, "PATCH", withText(pending.current)).then(() =>
-          // revalidate mọi list note (key có query) để card/preview ở trang topic luôn mới
+      if (hasPending()) {
+        void send(`/api/notes/${note._id}`, "PATCH", takePatch()).then(() =>
           mutate((k) => typeof k === "string" && (k.startsWith("/api/notes?") || k === "/api/stats"))
         );
       }
     };
-  }, [note._id]);
+  }, [note._id, takePatch]);
+
+  // ---- Format ----
+  const showToast = useCallback((text: string, warn = false) => {
+    setToast({ text, warn });
+    setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 3500);
+  }, []);
+
+  const runFormat = useCallback(async (mode: FormatMode) => {
+    const ed = editorRef.current;
+    if (!ed || formatting) return;
+    setFormatting(true);
+    try {
+      const r = await formatEditor(ed, mode);
+      // Q&A: làm đẹp luôn câu hỏi / câu trả lời
+      let qa = 0;
+      if (note.type === "qa" && mode !== "code") {
+        const tidy = (s: string) => s.split("\n").map((l) => cleanText(l).trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+        const q = tidy(question), a = tidy(answer);
+        if (q !== question) { setQuestion(q); queue({ question: q }); qa++; }
+        if (a !== answer) { setAnswer(a); queue({ answer: a }); qa++; }
+      }
+      const parts = [r.code && `${r.code} code block`, r.text && `${r.text} đoạn văn`, r.empty && `${r.empty} dòng trống`, qa && "câu hỏi/đáp án"].filter(Boolean);
+      if (r.failed.length) showToast(`Lỗi cú pháp ở ${r.failed.length} code block (${[...new Set(r.failed)].join(", ")}) — đã bỏ qua`, true);
+      else if (parts.length) showToast(`✨ Đã format: ${parts.join(", ")}`);
+      else showToast(r.skipped ? `Không có gì để format (${r.skipped} code block chưa chọn ngôn ngữ hỗ trợ)` : "Đã gọn gàng sẵn rồi ✓");
+    } catch {
+      showToast("Format thất bại", true);
+    } finally {
+      setFormatting(false);
+    }
+  }, [formatting, note.type, question, answer, queue, showToast]);
+
+  // Phím tắt Shift+Alt+F (giống VS Code)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && e.altKey && e.code === "KeyF") { e.preventDefault(); void runFormat("all"); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [runFormat]);
 
   async function remove() {
-    if (!confirm("Xoá ghi chú này?")) return;
-    pending.current = {};
+    const ok = await confirm({ title: "Xoá ghi chú này?", description: "Không thể hoàn tác.", confirmText: "Xoá", danger: true });
+    if (!ok) return;
+    pending.current = {}; contentDirty.current = false;
     clearTimeout(timer.current);
     await send(`/api/notes/${note._id}`, "DELETE");
     mutate("/api/topics");
@@ -136,6 +210,7 @@ function Editor({ note }: { note: NoteDTO }) {
         </Link>
         <div className="flex items-center gap-1">
           <SaveIndicator state={saveState} onRetry={flush} />
+          <FormatMenu onFormat={runFormat} busy={formatting} />
           <Button variant="ghost" size="icon" aria-label={pinned ? "Bỏ ghim" : "Ghim"}
             onClick={() => { setPinned(!pinned); queue({ pinned: !pinned }); }}>
             {pinned ? <Pin className="h-4 w-4 fill-current text-amber-500" /> : <PinOff className="h-4 w-4" />}
@@ -144,10 +219,11 @@ function Editor({ note }: { note: NoteDTO }) {
         </div>
       </div>
 
-      {/* Tiêu đề */}
+      {/* Tiêu đề: Enter nhảy xuống nội dung như Notion */}
       <input
         value={title}
         onChange={(e) => { setTitle(e.target.value); queue({ title: e.target.value }); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.nativeEvent.isComposing) { e.preventDefault(); editorRef.current?.focus(); } }}
         placeholder={isQA ? "Tiêu đề ngắn (tuỳ chọn)" : "Tiêu đề"}
         className="mb-4 w-full bg-transparent text-3xl font-bold tracking-tight outline-none placeholder:text-muted-foreground/50 sm:text-4xl"
         autoFocus={!note.title && !isQA}
@@ -169,7 +245,7 @@ function Editor({ note }: { note: NoteDTO }) {
         <TagInput tags={tags} onChange={(t) => { setTags(t); queue({ tags: t }); }} />
       </div>
 
-      {/* Q&A: câu hỏi + câu trả lời */}
+      {/* Q&A */}
       {isQA && (
         <div className="mb-8 space-y-4">
           <Field label="Câu hỏi">
@@ -184,22 +260,25 @@ function Editor({ note }: { note: NoteDTO }) {
         </div>
       )}
 
-      {/* Editor block */}
-      <BlockEditor
-        initialContent={note.content as unknown[] | undefined}
-        onChange={(content) => queue({ content })}
-      />
+      <BlockEditor initialContent={note.content as unknown[] | undefined} onChange={onContentChange} onReady={onReady} />
+
+      {/* Toast kết quả format */}
+      <div aria-live="polite" className="pointer-events-none fixed inset-x-0 bottom-6 z-50 flex justify-center px-4">
+        {toast && (
+          <div className={cn("page-enter pointer-events-auto max-w-md rounded-lg border bg-card px-4 py-2.5 text-sm shadow-lg", toast.warn && "border-amber-500/50")}>
+            {toast.text}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</label>{children}</div>;
-}
-
 function SaveIndicator({ state, onRetry }: { state: SaveState; onRetry: () => void }) {
   const base = "mr-1 inline-flex items-center gap-1 text-xs text-muted-foreground";
-  if (state === "saving" || state === "dirty") return <span className={base}><Loader2 className={cn("h-3.5 w-3.5", state === "saving" && "animate-spin")} /> Đang lưu…</span>;
+  // "dirty" không nhấp nháy spinner khi đang gõ (đỡ rối mắt) — chỉ hiện khi thật sự đang gửi
+  if (state === "dirty") return <span className={base}>Chưa lưu</span>;
+  if (state === "saving") return <span className={base}><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang lưu…</span>;
   if (state === "saved") return <span className={base}><Check className="h-3.5 w-3.5 text-emerald-500" /> Saved</span>;
   if (state === "error") return <button onClick={onRetry} className="mr-1 inline-flex items-center gap-1 text-xs text-danger"><TriangleAlert className="h-3.5 w-3.5" /> Lỗi lưu · thử lại</button>;
   return null;

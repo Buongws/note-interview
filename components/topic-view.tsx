@@ -9,11 +9,13 @@ import { NoteCard } from "@/components/note-card";
 import { EmptyState } from "@/components/empty-state";
 import { useNotes, useTopics } from "@/lib/hooks";
 import { send } from "@/lib/fetcher";
+import { useConfirm } from "@/components/confirm";
 import { cn, STATUS_META } from "@/lib/utils";
 import type { NoteDTO, NoteStatus, NoteType } from "@/types";
 
 export function TopicView({ topicId }: { topicId: string }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const { data: topics, isLoading: loadingTopics } = useTopics();
   const topic = topics?.find((t) => t._id === topicId);
   const { data: notes = [], isLoading, mutate: mutateNotes } = useNotes({ topicId });
@@ -53,12 +55,16 @@ export function TopicView({ topicId }: { topicId: string }) {
   }, [mutateNotes]);
 
   const remove = useCallback(async (n: NoteDTO) => {
-    if (!confirm(`Xoá ghi chú "${n.title || n.question || "Chưa đặt tên"}"?`)) return;
-    await send(`/api/notes/${n._id}`, "DELETE");
-    mutateNotes();
+    const ok = await confirm({ title: `Xoá ghi chú "${n.title || n.question || "Chưa đặt tên"}"?`, description: "Không thể hoàn tác.", confirmText: "Xoá", danger: true });
+    if (!ok) return;
+    // optimistic: card biến mất ngay, không chờ server
+    await mutateNotes(
+      async () => { await send(`/api/notes/${n._id}`, "DELETE"); return undefined; },
+      { optimisticData: (cur) => (cur ?? []).filter((x) => x._id !== n._id), populateCache: false, revalidate: false }
+    );
     mutate("/api/topics");
     mutate("/api/stats");
-  }, [mutateNotes]);
+  }, [mutateNotes, confirm]);
 
   if (!loadingTopics && !topic) {
     return <div className="p-8"><EmptyState emoji="🤷" title="Không tìm thấy chủ đề" description="Chủ đề này có thể đã bị xoá."><Button asChild><Link href="/">Về Dashboard</Link></Button></EmptyState></div>;

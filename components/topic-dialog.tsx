@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { send } from "@/lib/fetcher";
+import { useConfirm } from "@/components/confirm";
 import { cn, TOPIC_COLORS, TOPIC_EMOJIS } from "@/lib/utils";
 import type { TopicDTO } from "@/types";
 
@@ -21,6 +22,24 @@ export function TopicDialog({ open, onOpenChange, topic }: Props) {
   const [color, setColor] = useState(TOPIC_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const confirm = useConfirm();
+
+  // Form đã bị chỉnh so với giá trị ban đầu?
+  const dirty =
+    name.trim() !== (topic?.name ?? "") || icon !== (topic?.icon ?? "📁") || color !== (topic?.color ?? TOPIC_COLORS[0]);
+
+  /** Mọi đường đóng (click ra ngoài, Esc, X, Huỷ) đều đi qua đây. */
+  async function requestClose() {
+    if (saving) return;
+    if (dirty && !(await confirm({
+      title: "Bỏ thay đổi?",
+      description: "Bạn đang nhập dở. Đóng bây giờ sẽ mất những gì vừa nhập.",
+      confirmText: "Bỏ thay đổi",
+      cancelText: "Tiếp tục nhập",
+      danger: true,
+    }))) return;
+    onOpenChange(false);
+  }
 
   // Reset form mỗi lần mở
   useEffect(() => {
@@ -49,7 +68,7 @@ export function TopicDialog({ open, onOpenChange, topic }: Props) {
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(o) => (o ? onOpenChange(true) : void requestClose())}>
       <DialogContent>
         <DialogTitle className="mb-4 text-base font-semibold">{topic ? "Sửa chủ đề" : "Chủ đề mới"}</DialogTitle>
         <form onSubmit={submit} className="space-y-4">
@@ -107,7 +126,7 @@ export function TopicDialog({ open, onOpenChange, topic }: Props) {
 
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>Huỷ</Button>
+            <Button type="button" variant="ghost" onClick={() => void requestClose()}>Huỷ</Button>
             <Button type="submit" disabled={saving || !name.trim()}>{topic ? "Lưu" : "Tạo"}</Button>
           </div>
         </form>

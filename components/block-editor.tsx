@@ -1,5 +1,5 @@
 "use client";
-import { useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import { useTheme } from "next-themes";
 import { BlockNoteSchema, defaultBlockSpecs, createCodeBlockSpec } from "@blocknote/core";
 import { vi } from "@blocknote/core/locales";
@@ -8,6 +8,7 @@ import { useCreateBlockNote } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import "@blocknote/core/fonts/inter.css";
 import "@blocknote/mantine/style.css";
+import type { FormatTarget } from "@/lib/format";
 
 // Schema mặc định + code block có danh sách ngôn ngữ để highlight (shiki)
 const schema = BlockNoteSchema.create({
@@ -16,12 +17,14 @@ const schema = BlockNoteSchema.create({
 
 interface Props {
   initialContent?: unknown[];
-  onChange: (content: unknown[]) => void;
-  placeholder?: string;
+  /** Chỉ báo "có thay đổi" — KHÔNG đọc document ở đây (clone cả doc mỗi phím gõ rất tốn). */
+  onChange: () => void;
+  /** Trả về handle của editor để trang cha format / focus / đọc document khi cần. */
+  onReady?: (editor: FormatTarget) => void;
 }
 
 /** Editor dạng block (heading, bullet, checklist, code, quote…). Gõ "/" để mở menu block. */
-export default function BlockEditor({ initialContent, onChange }: Props) {
+function BlockEditor({ initialContent, onChange, onReady }: Props) {
   const { resolvedTheme } = useTheme();
   const editor = useCreateBlockNote({
     schema,
@@ -31,6 +34,8 @@ export default function BlockEditor({ initialContent, onChange }: Props) {
     initialContent: initialContent && initialContent.length ? (initialContent as never) : undefined,
   });
 
+  useEffect(() => { onReady?.(editor as unknown as FormatTarget); }, [editor, onReady]);
+
   const theme = useMemo(() => (resolvedTheme === "dark" ? "dark" : "light"), [resolvedTheme]);
 
   return (
@@ -38,9 +43,11 @@ export default function BlockEditor({ initialContent, onChange }: Props) {
       <BlockNoteView
         editor={editor}
         theme={theme}
-        // Chỉ đẩy tham chiếu doc lên; plain text được tính 1 lần khi autosave (không phải mỗi phím)
-        onChange={() => onChange(editor.document as unknown[])}
+        onChange={onChange}
       />
     </div>
   );
 }
+
+// memo: gõ tiêu đề / tag không làm editor render lại
+export default memo(BlockEditor);

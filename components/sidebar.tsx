@@ -15,6 +15,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { TopicDialog } from "@/components/topic-dialog";
 import { useTopics } from "@/lib/hooks";
 import { send } from "@/lib/fetcher";
+import { useConfirm } from "@/components/confirm";
 import { cn } from "@/lib/utils";
 import type { TopicDTO } from "@/types";
 
@@ -27,6 +28,7 @@ interface Props {
 export function Sidebar({ username, onNavigate, onSearch }: Props) {
   const pathname = usePathname();
   const router = useRouter();
+  const confirm = useConfirm();
   const { data: topics = [], isLoading } = useTopics();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TopicDTO | null>(null);
@@ -50,10 +52,13 @@ export function Sidebar({ username, onNavigate, onSearch }: Props) {
   }
 
   async function removeTopic(t: TopicDTO) {
-    const msg = t.noteCount
-      ? `Xoá chủ đề "${t.name}" và ${t.noteCount} ghi chú bên trong?`
-      : `Xoá chủ đề "${t.name}"?`;
-    if (!confirm(msg)) return;
+    const ok = await confirm({
+      title: `Xoá chủ đề "${t.name}"?`,
+      description: t.noteCount ? `${t.noteCount} ghi chú bên trong cũng sẽ bị xoá vĩnh viễn.` : undefined,
+      confirmText: "Xoá",
+      danger: true,
+    });
+    if (!ok) return;
     await send(`/api/topics/${t._id}`, "DELETE");
     await mutate("/api/topics");
     mutate("/api/stats");

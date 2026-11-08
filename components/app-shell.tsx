@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Menu, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sidebar } from "@/components/sidebar";
@@ -10,6 +11,14 @@ import { cn } from "@/lib/utils";
 export function AppShell({ username, children }: { username: string; children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
   const [search, setSearch] = useState(false);
+  const pathname = usePathname();
+
+  // Tải sẵn bundle editor (BlockNote + shiki) lúc trình duyệt rảnh -> mở note không bị chờ
+  useEffect(() => {
+    const idle = (window as unknown as { requestIdleCallback?: (cb: () => void) => number }).requestIdleCallback;
+    const run = () => void import("@/components/block-editor");
+    if (idle) idle(run); else setTimeout(run, 2000);
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -43,7 +52,7 @@ export function AppShell({ username, children }: { username: string; children: R
           <span className="text-sm font-semibold">Interview Note</span>
           <Button variant="ghost" size="icon" aria-label="Tìm kiếm" onClick={() => setSearch(true)}><Search className="h-5 w-5" /></Button>
         </header>
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main key={pathname} className="page-enter flex-1 overflow-y-auto">{children}</main>
       </div>
 
       <CommandPalette open={search} onOpenChange={setSearch} />
