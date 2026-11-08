@@ -95,8 +95,13 @@ function cleanInline(items: Inline[]): Inline[] | null {
   return changed ? out : null;
 }
 
-const isEmptyPara = (b: Blk) =>
-  b.type === "paragraph" && (!Array.isArray(b.content) || (b.content as Inline[]).every((c) => !(c.text ?? "").trim())) && !b.children?.length;
+const LIST_BLOCKS = new Set(["bulletListItem", "numberedListItem", "checkListItem", "toggleListItem"]);
+
+const hasNoText = (b: Blk) =>
+  !Array.isArray(b.content) || (b.content as Inline[]).every((c) => !(c.text ?? "").trim());
+const isEmptyPara = (b: Blk) => b.type === "paragraph" && hasNoText(b) && !b.children?.length;
+/** Mục danh sách không có chữ và không có mục con (xoá an toàn, không mất dữ liệu). */
+const isEmptyListItem = (b: Blk) => LIST_BLOCKS.has(b.type) && hasNoText(b) && !b.children?.length;
 
 /** Phần tối thiểu của BlockNoteEditor mà formatter cần. */
 export interface FormatTarget {
@@ -114,6 +119,7 @@ export async function formatEditor(
   mode: "text" | "code" | "all" = "all"
 ): Promise<FormatResult> {
   const res: FormatResult = { code: 0, text: 0, failed: [], skipped: 0, empty: 0 };
+  const emptyItems: string[] = []; // mục danh sách trống ở mọi cấp lồng nhau
   const doWalk = async (blocks: Blk[]) => {
     for (const b of blocks) {
       if (b.type === "codeBlock" && mode !== "text") {
@@ -130,6 +136,7 @@ export async function formatEditor(
         const cleaned = cleanInline(b.content as Inline[]);
         if (cleaned) { editor.updateBlock(b.id, { content: cleaned }); res.text++; }
       }
+      if (mode !== "code" && isEmptyListItem(b)) emptyItems.push(b.id);
       if (b.children?.length) await doWalk(b.children);
     }
   };
@@ -138,15 +145,21 @@ export async function formatEditor(
   // Xoá dòng trống liên tiếp (giữ tối đa 1) và dòng trống ở cuối
   if (mode !== "code") {
     const top = editor.document as Blk[];
-    const remove: string[] = [];
+    const remove: string[] = [...emptyItems];
     top.forEach((b, i) => {
-      if (isEmptyPara(b) && (i === 0 ? false : isEmptyPara(top[i - 1]))) remove.push(b.id);
+      if (!isEmptyPara(b)) return;
+      // đoạn trống kẹp giữa 2 mục danh sách làm đứt danh sách (4, 5, <trống>, 7) -> bỏ
+      const prev = top[i - 1], next = top[i + 1];
+      const betweenList = prev && next && LIST_BLOCKS.has(prev.type) && LIST_BLOCKS.has(next.type);
+      if (betweenList || (i > 0 && isEmptyPara(prev))) remove.push(b.id);
     });
-    if (top.length - remove.length > 1) {
-      const last = [...top].reverse().find((b) => !remove.includes(b.id));
+    const topLeft = () => top.filter((b) => !remove.includes(b.id));
+    if (topLeft().length > 1) {
+      const last = topLeft().at(-1);
       if (last && isEmptyPara(last)) remove.push(last.id);
     }
-    if (remove.length && remove.length < top.length) { editor.removeBlocks(remove); res.empty = remove.length; }
+    // document phải còn ít nhất 1 block
+    if (remove.length && topLeft().length > 0) { editor.removeBlocks(remove); res.empty = remove.length; }
   }
   return res;
 }
