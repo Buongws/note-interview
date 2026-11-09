@@ -20,7 +20,7 @@ export const NoteCard = memo(function NoteCard({ note, variant = "card", onPin, 
   const list = variant === "list";
 
   return (
-    <div className={cn("group relative rounded-lg border bg-card transition-shadow hover:shadow-md", list ? "flex items-center gap-3 px-3 py-2.5" : "flex flex-col p-4")}>
+    <div className={cn("group relative rounded-lg border bg-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md", list ? "flex items-center gap-3 px-3 py-2.5" : "flex flex-col p-4")}>
       <Link href={`/notes/${note._id}`} className="absolute inset-0 z-0 rounded-lg" aria-label={title} />
 
       <div className={cn("pointer-events-none flex min-w-0 items-center gap-2", list ? "flex-1" : "mb-2")}>

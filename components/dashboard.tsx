@@ -55,7 +55,7 @@ export function Dashboard() {
           </div>
 
           <h2 className="mb-3 mt-10 text-sm font-semibold">Sửa gần đây</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {stats.recent.map((n) => <NoteCard key={n._id} note={n} />)}
           </div>
         </>

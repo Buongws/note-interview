@@ -33,3 +33,11 @@ export interface StatsDTO {
   types: Record<NoteType, number>;
   recent: NoteDTO[];
 }
+
+export interface DrawingDTO {
+  _id: string;
+  title: string;
+  shapes: number;
+  createdAt: string;
+  updatedAt: string;
+}

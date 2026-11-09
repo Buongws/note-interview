@@ -37,7 +37,7 @@ export const PATCH = withUser<P>(async (req, { userId, params }) => {
   if (data.content !== undefined) note.markModified("content");
   await note.save();
 
-  const { content: _c, contentText: _t, ...rest } = note.toObject();
+  const { content: _c, contentText: _t, searchText: _s, ...rest } = note.toObject();
   return ok(rest);
 });
 

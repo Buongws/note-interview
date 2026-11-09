@@ -135,9 +135,12 @@ function Editor({ note }: { note: NoteDTO }) {
       });
       e.preventDefault();
     };
+    const onOnline = () => void flush(); // mất mạng rồi có lại -> tự lưu bù
     window.addEventListener("beforeunload", onUnload);
+    window.addEventListener("online", onOnline);
     return () => {
       window.removeEventListener("beforeunload", onUnload);
+      window.removeEventListener("online", onOnline);
       clearTimeout(timer.current);
       if (hasPending()) {
         void send(`/api/notes/${note._id}`, "PATCH", takePatch()).then(() =>
@@ -145,7 +148,7 @@ function Editor({ note }: { note: NoteDTO }) {
         );
       }
     };
-  }, [note._id, takePatch]);
+  }, [note._id, takePatch, flush]);
 
   // ---- Format ----
   const showToast = useCallback((text: string, warn = false) => {

@@ -1,4 +1,5 @@
 import { Schema, model, models, type Model, type Types } from "mongoose";
+import { normalizeSearch } from "@/lib/search";
 
 export const NOTE_TYPES = ["knowledge", "qa"] as const;
 export const NOTE_STATUSES = ["learning", "reviewing", "mastered"] as const;
@@ -13,6 +14,7 @@ export interface INote {
   content: unknown; // JSON blocks của BlockNote
   contentText: string; // plain text của content, dùng cho tìm kiếm
   preview: string; // đoạn trích ngắn hiển thị trên card
+  searchText: string; // title+nội dung+tag đã bỏ dấu, dùng cho tìm kiếm
   tags: string[];
   type: NoteType;
   question?: string;
@@ -31,6 +33,7 @@ const NoteSchema = new Schema<INote>(
     content: { type: Schema.Types.Mixed, default: [] },
     contentText: { type: String, default: "" },
     preview: { type: String, default: "" },
+    searchText: { type: String, default: "" },
     tags: { type: [String], default: [], index: true },
     type: { type: String, enum: NOTE_TYPES, default: "knowledge" },
     question: { type: String, default: "" },
@@ -40,6 +43,13 @@ const NoteSchema = new Schema<INote>(
   },
   { timestamps: true }
 );
+
+// Tự cập nhật searchText mỗi lần validate (create / save / insertMany)
+NoteSchema.pre("validate", function () {
+  this.searchText = normalizeSearch(
+    [this.title, this.question, this.answer, this.contentText, (this.tags ?? []).join(" ")].join(" ")
+  );
+});
 
 // Compound index khớp các query chính: list theo topic, "sửa gần đây", lọc status
 NoteSchema.index({ userId: 1, topicId: 1, pinned: -1, updatedAt: -1 });

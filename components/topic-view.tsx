@@ -127,7 +127,7 @@ export function TopicView({ topicId }: { topicId: string }) {
       ) : filtered.length === 0 ? (
         <EmptyState emoji="🔎" title="Không có ghi chú khớp bộ lọc" />
       ) : (
-        <div className={view === "card" ? "grid gap-3 sm:grid-cols-2 lg:grid-cols-3" : "space-y-2"}>
+        <div className={view === "card" ? "stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3" : "stagger space-y-2"}>
           {filtered.map((n) => <NoteCard key={n._id} note={n} variant={view} onPin={togglePin} onDelete={remove} />)}
         </div>
       )}

@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { send } from "@/lib/fetcher";
 import { useConfirm } from "@/components/confirm";
-import { cn, TOPIC_COLORS, TOPIC_EMOJIS } from "@/lib/utils";
+import { EmojiPicker } from "@/components/emoji-picker";
+import { cn, TOPIC_COLORS } from "@/lib/utils";
 import type { TopicDTO } from "@/types";
 
 interface Props {
@@ -83,29 +84,8 @@ export function TopicDialog({ open, onOpenChange, topic }: Props) {
           </div>
 
           <div>
-            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Emoji</p>
-            <div className="flex flex-wrap gap-1">
-              {TOPIC_EMOJIS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => setIcon(e)}
-                  className={cn("h-8 w-8 rounded-md text-base hover:bg-accent", icon === e && "bg-accent ring-1 ring-primary")}
-                >
-                  {e}
-                </button>
-              ))}
-            </div>
-            <Input
-              className="mt-2 w-24"
-              placeholder="hoặc gõ"
-              value=""
-              onChange={(e) => {
-                // lấy ký tự đầu tiên (grapheme) người dùng gõ/dán
-                const first = Array.from(new Intl.Segmenter().segment(e.target.value))[0]?.segment;
-                if (first) setIcon(first);
-              }}
-            />
+            <p className="mb-1.5 text-xs font-medium text-muted-foreground">Icon</p>
+            <EmojiPicker value={icon} onChange={setIcon} />
           </div>
 
           <div>

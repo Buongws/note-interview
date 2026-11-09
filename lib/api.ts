@@ -32,13 +32,24 @@ export function errorResponse(err: unknown) {
       { status: 400 }
     );
   }
+  if (err instanceof PayloadTooLarge) {
+    return NextResponse.json({ error: "Nội dung quá lớn" }, { status: 413 });
+  }
   console.error(err);
   return NextResponse.json({ error: "Lỗi máy chủ" }, { status: 500 });
 }
 
 /** Parse JSON body bằng Zod schema. */
-export async function parseBody<T>(req: Request, schema: ZodType<T>): Promise<T> {
-  const body = await req.json().catch(() => ({}));
+export class PayloadTooLarge extends Error {}
+
+/** Parse JSON body bằng Zod; từ chối body > maxBytes (mặc định 3MB, Vercel giới hạn 4.5MB). */
+export async function parseBody<T>(req: Request, schema: ZodType<T>, maxBytes = 3_000_000): Promise<T> {
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (declared > maxBytes) throw new PayloadTooLarge();
+  const text = await req.text();
+  if (text.length > maxBytes) throw new PayloadTooLarge();
+  let body: unknown = {};
+  try { body = text ? JSON.parse(text) : {}; } catch { /* body hỏng -> Zod báo thiếu field */ }
   return schema.parse(body);
 }
 

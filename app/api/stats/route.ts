@@ -10,7 +10,7 @@ export const GET = withUser(async (_req, { userId }) => {
       { $match: { userId: uid } },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]),
-    Note.find({ userId: uid }).select("-content -contentText").sort({ updatedAt: -1 }).limit(8).lean(),
+    Note.find({ userId: uid }).select("-content -contentText -searchText").sort({ updatedAt: -1 }).limit(8).lean(),
     Note.aggregate<{ _id: string; count: number }>([
       { $match: { userId: uid } },
       { $group: { _id: "$type", count: { $sum: 1 } } },

@@ -4,10 +4,11 @@ import { Topic } from "@/models/Topic";
 import { badRequest, isValidId, ok, parseBody, withUser } from "@/lib/api";
 import { noteCreateSchema, noteQuerySchema } from "@/lib/validators";
 import { escapeRegex } from "@/lib/escape";
+import { normalizeSearch } from "@/lib/search";
 import { buildPreview } from "@/lib/note-utils";
 
 // Danh sách note: không trả về `content`/`contentText` để response nhẹ
-const LIST_FIELDS = "-content -contentText";
+const LIST_FIELDS = "-content -contentText -searchText";
 
 // GET /api/notes?topicId=&tag=&status=&type=&q=&limit=
 export const GET = withUser(async (req, { userId }) => {
@@ -23,8 +24,8 @@ export const GET = withUser(async (req, { userId }) => {
   if (query.status) filter.status = query.status;
   if (query.type) filter.type = query.type;
   if (query.q?.trim()) {
-    const re = new RegExp(escapeRegex(query.q.trim()), "i");
-    filter.$or = [{ title: re }, { contentText: re }, { question: re }, { answer: re }, { tags: re }];
+    // searchText đã bỏ dấu + lowercase -> khớp "ghi chu" với "Ghi chú", không cần cờ "i"
+    filter.searchText = new RegExp(escapeRegex(normalizeSearch(query.q.trim())));
   }
 
   const notes = await Note.find(filter)
@@ -47,5 +48,6 @@ export const POST = withUser(async (req, { userId }) => {
     content: data.content ?? [],
     preview: buildPreview(data),
   });
-  return ok(note.toObject(), { status: 201 });
+  const { searchText: _s, contentText: _t, ...rest } = note.toObject();
+  return ok(rest, { status: 201 });
 });

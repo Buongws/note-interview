@@ -59,3 +59,16 @@ export const noteQuerySchema = z.object({
   q: z.string().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(200).optional(),
 });
+
+// ---- Drawings (Excalidraw) ----
+export const drawingCreateSchema = z.object({ title: z.string().trim().max(120).default("") });
+export const drawingUpdateSchema = z.object({
+  title: z.string().trim().max(120).optional(),
+  data: z
+    .object({
+      elements: z.array(z.any()).max(20_000),
+      appState: z.record(z.string(), z.any()).default({}),
+      files: z.record(z.string(), z.any()).default({}),
+    })
+    .optional(),
+});

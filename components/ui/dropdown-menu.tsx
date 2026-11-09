@@ -12,7 +12,7 @@ export function DropdownMenuContent({ className, ...props }: React.ComponentProp
       <M.Content
         align="end"
         sideOffset={4}
-        className={cn("z-50 min-w-[10rem] rounded-lg border bg-card p-1 shadow-lg", className)}
+        className={cn("anim-menu z-50 min-w-[10rem] rounded-lg border bg-card p-1 shadow-lg", className)}
         {...props}
       />
     </M.Portal>

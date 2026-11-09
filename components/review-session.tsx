@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { mutate } from "swr";
@@ -34,6 +34,8 @@ export function ReviewSession() {
   const [flipped, setFlipped] = useState(false);
   const [stats, setStats] = useState({ known: 0, unknown: 0 });
   const [round, setRound] = useState(0); // đổi round -> xáo lại bộ bài
+  const [failed, setFailed] = useState(0); // số câu chưa lưu được status (mất mạng)
+  const busy = useRef(false); // chống bấm đúp / giữ phím
 
   // Xây bộ bài (một lần khi dữ liệu về / khi đổi bộ lọc / bấm ôn lại)
   const ready = !!notes;
@@ -48,13 +50,20 @@ export function ReviewSession() {
   const done = ready && pos >= deck.length;
 
   const answer = useCallback(async (known: boolean) => {
-    if (!card) return;
+    if (!card || busy.current) return;
+    busy.current = true;
     setStats((s) => ({ known: s.known + (known ? 1 : 0), unknown: s.unknown + (known ? 0 : 1) }));
     setPos((p) => p + 1);
     setFlipped(false);
     // Nhớ -> mastered; Chưa nhớ -> learning
-    await send(`/api/notes/${card._id}`, "PATCH", { status: known ? "mastered" : "learning" });
-    mutate("/api/stats");
+    try {
+      await send(`/api/notes/${card._id}`, "PATCH", { status: known ? "mastered" : "learning" });
+      mutate("/api/stats");
+    } catch {
+      setFailed((n) => n + 1); // vẫn cho ôn tiếp, chỉ báo là chưa lưu
+    } finally {
+      busy.current = false;
+    }
   }, [card]);
 
   // Phím tắt: Space lật, ← chưa nhớ, → nhớ
@@ -109,6 +118,7 @@ export function ReviewSession() {
             <span>{pos + 1} / {deck.length}</span>
             <StatusBadge status={card.status} />
           </div>
+          {failed > 0 && <p className="mb-2 text-xs text-danger">⚠ {failed} câu chưa lưu được trạng thái (kiểm tra mạng).</p>}
           <div className="mb-5 h-1 overflow-hidden rounded bg-muted"><div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} /></div>
 
           {/* Flashcard lật 3D */}

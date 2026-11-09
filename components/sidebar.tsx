@@ -8,10 +8,9 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { BookOpenText, GripVertical, LayoutDashboard, LogOut, MoreHorizontal, Pencil, Plus, Search, Trash2, Layers } from "lucide-react";
+import { BookOpenText, GripVertical, LayoutDashboard, MoreHorizontal, PenTool, Pencil, Plus, Search, Trash2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { TopicDialog } from "@/components/topic-dialog";
 import { useTopics } from "@/lib/hooks";
 import { send } from "@/lib/fetcher";
@@ -65,19 +64,13 @@ export function Sidebar({ username, onNavigate, onSearch }: Props) {
     if (pathname === `/topics/${t._id}`) router.push("/");
   }
 
-  async function logout() {
-    await send("/api/auth/logout", "POST");
-    router.replace("/login");
-    router.refresh();
-  }
-
   const navItem = (href: string, label: string, Icon: typeof LayoutDashboard) => (
     <Link
       href={href}
       onClick={onNavigate}
       className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent",
-        pathname === href && "bg-accent font-medium"
+        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent",
+        (href === "/" ? pathname === "/" : pathname.startsWith(href)) && "bg-accent font-medium"
       )}
     >
       <Icon className="h-4 w-4 text-muted-foreground" /> {label}
@@ -106,6 +99,7 @@ export function Sidebar({ username, onNavigate, onSearch }: Props) {
         </button>
         {navItem("/", "Dashboard", LayoutDashboard)}
         {navItem("/review", "Ôn tập", Layers)}
+        {navItem("/draw", "Bảng vẽ", PenTool)}
       </div>
 
       <div className="mt-4 flex items-center justify-between px-4">
@@ -136,11 +130,6 @@ export function Sidebar({ username, onNavigate, onSearch }: Props) {
           </SortableContext>
         </DndContext>
       </nav>
-
-      <div className="flex items-center justify-between border-t px-3 py-2">
-        <Button variant="ghost" size="sm" onClick={logout}><LogOut className="h-4 w-4" /> Đăng xuất</Button>
-        <ThemeToggle />
-      </div>
 
       <TopicDialog open={dialogOpen} onOpenChange={setDialogOpen} topic={editing} />
     </div>
