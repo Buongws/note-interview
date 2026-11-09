@@ -11,11 +11,13 @@ import { StatusPicker } from "@/components/status";
 import { TagInput } from "@/components/tag-input";
 import { EmptyState } from "@/components/empty-state";
 import { FormatMenu, type FormatMode } from "@/components/format-menu";
+import { MarkdownMenu } from "@/components/markdown-menu";
 import { useConfirm } from "@/components/confirm";
 import { useTopics } from "@/lib/hooks";
 import { fetcher, send } from "@/lib/fetcher";
 import { blocksToText } from "@/lib/blocks";
 import { cleanText, formatEditor, type FormatTarget } from "@/lib/format";
+import { importMarkdown, exportMarkdown, downloadText, MAX_MD_BYTES, type MarkdownTarget } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import type { NoteDTO, NoteStatus } from "@/types";
 
@@ -181,6 +183,33 @@ function Editor({ note }: { note: NoteDTO }) {
     }
   }, [formatting, note.type, question, answer, queue, showToast]);
 
+  // ---- Markdown ----
+  const onImportMd = useCallback(async (file: File) => {
+    const ed = editorRef.current as unknown as MarkdownTarget | null;
+    if (!ed) return;
+    if (file.size > MAX_MD_BYTES) return showToast("File quá lớn (tối đa 2MB)", true);
+    try {
+      const r = await importMarkdown(ed, await file.text(), { takeTitle: !title.trim() });
+      if (r.title) { setTitle(r.title); queue({ title: r.title }); }
+      if (!r.count && !r.title) return showToast("File Markdown trống", true);
+      onContentChange();
+      showToast(`📄 Đã nhập ${file.name}`);
+    } catch {
+      showToast("Không đọc được file Markdown", true);
+    }
+  }, [title, queue, onContentChange, showToast]);
+
+  const onExportMd = useCallback(async () => {
+    const ed = editorRef.current as unknown as MarkdownTarget | null;
+    if (!ed) return;
+    try {
+      const name = (title.trim() || "note").replace(/[\\/:*?"<>|]+/g, "-").slice(0, 80);
+      downloadText(`${name}.md`, await exportMarkdown(ed, title));
+    } catch {
+      showToast("Xuất Markdown thất bại", true);
+    }
+  }, [title, showToast]);
+
   // Phím tắt Shift+Alt+F (giống VS Code)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -213,6 +242,7 @@ function Editor({ note }: { note: NoteDTO }) {
         </Link>
         <div className="flex items-center gap-1">
           <SaveIndicator state={saveState} onRetry={flush} />
+          <MarkdownMenu onImport={onImportMd} onExport={onExportMd} />
           <FormatMenu onFormat={runFormat} busy={formatting} />
           <Button variant="ghost" size="icon" aria-label={pinned ? "Bỏ ghim" : "Ghim"}
             onClick={() => { setPinned(!pinned); queue({ pinned: !pinned }); }}>
